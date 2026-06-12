@@ -16,7 +16,7 @@ pub enum BitcoinError {
 impl CompactSize {
     pub fn new(value: u64) -> Self {
         // TODO: Construct a CompactSize from a u64 value
-        CompactSize { value: value }
+        CompactSize { value }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -75,7 +75,7 @@ impl CompactSize {
 
         if first_byte <= 0xFC {
             let value = first_byte as u64;
-            return Ok((CompactSize { value: value }, 1));
+            return Ok((CompactSize { value }, 1));
         }
 
         if first_byte == 0xFD {
@@ -83,7 +83,7 @@ impl CompactSize {
                 return Err(BitcoinError::InsufficientBytes);
             }
             let value = u16::from_le_bytes([bytes[1], bytes[2]]) as u64;
-            return Ok((CompactSize { value: value }, 3));
+            return Ok((CompactSize { value }, 3));
         }
 
         if first_byte == 0xFE {
@@ -91,17 +91,16 @@ impl CompactSize {
                 return Err(BitcoinError::InsufficientBytes);
             }
             let value = u32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as u64;
-            return Ok((CompactSize { value: value }, 5));
+            return Ok((CompactSize { value }, 5));
         }
 
         if bytes.len() < 9 {
             return Err(BitcoinError::InsufficientBytes);
         }
         let value = u64::from_le_bytes([
-            bytes[1], bytes[2], bytes[3], bytes[4],
-            bytes[5], bytes[6], bytes[7], bytes[8],
+            bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8],
         ]);
-        Ok((CompactSize { value: value }, 9))
+        Ok((CompactSize { value }, 9))
     }
 }
 
@@ -138,9 +137,7 @@ impl<'de> Deserialize<'de> for Txid {
         }
 
         let mut arr = [0u8; 32];
-        for i in 0..32 {
-            arr[i] = decoded_bytes[i];
-        }
+        arr.copy_from_slice(&decoded_bytes[..32]);
 
         Ok(Txid(arr))
     }
@@ -157,7 +154,7 @@ impl OutPoint {
         // TODO: Create an OutPoint from raw txid bytes and output index
         OutPoint {
             txid: Txid(txid),
-            vout: vout,
+            vout,
         }
     }
 
@@ -186,15 +183,13 @@ impl OutPoint {
         }
 
         let mut txid_bytes = [0u8; 32];
-        for i in 0..32 {
-            txid_bytes[i] = bytes[i];
-        }
+        txid_bytes.copy_from_slice(&bytes[..32]);
 
         let vout = u32::from_le_bytes([bytes[32], bytes[33], bytes[34], bytes[35]]);
 
         let outpoint = OutPoint {
             txid: Txid(txid_bytes),
-            vout: vout,
+            vout,
         };
 
         Ok((outpoint, 36))
@@ -209,7 +204,7 @@ pub struct Script {
 impl Script {
     pub fn new(bytes: Vec<u8>) -> Self {
         // TODO: Simple constructor
-        Script { bytes: bytes }
+        Script { bytes }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -240,12 +235,17 @@ impl Script {
         }
 
         let mut script_bytes = Vec::new();
-        for i in header_size..header_size + script_length {
-            script_bytes.push(bytes[i]);
+        for byte in bytes.iter().skip(header_size).take(script_length) {
+            script_bytes.push(*byte);
         }
 
         let total_consumed = header_size + script_length;
-        Ok((Script { bytes: script_bytes }, total_consumed))
+        Ok((
+            Script {
+                bytes: script_bytes,
+            },
+            total_consumed,
+        ))
     }
 }
 
@@ -268,9 +268,9 @@ impl TransactionInput {
     pub fn new(previous_output: OutPoint, script_sig: Script, sequence: u32) -> Self {
         // TODO: Basic constructor
         TransactionInput {
-            previous_output: previous_output,
-            script_sig: script_sig,
-            sequence: sequence,
+            previous_output,
+            script_sig,
+            sequence,
         }
     }
 
@@ -323,9 +323,9 @@ impl TransactionInput {
         let total_consumed = sequence_start + 4;
 
         let input = TransactionInput {
-            previous_output: previous_output,
-            script_sig: script_sig,
-            sequence: sequence,
+            previous_output,
+            script_sig,
+            sequence,
         };
 
         Ok((input, total_consumed))
@@ -343,9 +343,9 @@ impl BitcoinTransaction {
     pub fn new(version: u32, inputs: Vec<TransactionInput>, lock_time: u32) -> Self {
         // TODO: Construct a transaction from parts
         BitcoinTransaction {
-            version: version,
-            inputs: inputs,
-            lock_time: lock_time,
+            version,
+            inputs,
+            lock_time,
         }
     }
 
@@ -419,9 +419,9 @@ impl BitcoinTransaction {
         offset += 4;
 
         let transaction = BitcoinTransaction {
-            version: version,
-            inputs: inputs,
-            lock_time: lock_time,
+            version,
+            inputs,
+            lock_time,
         };
 
         Ok((transaction, offset))
@@ -435,13 +435,16 @@ impl fmt::Display for BitcoinTransaction {
         writeln!(f, "Version: {}", self.version)?;
         writeln!(f, "Inputs ({}):", self.inputs.len())?;
 
-        let mut index = 0;
-        for input in &self.inputs {
+        for (index, input) in self.inputs.iter().enumerate() {
             writeln!(f, "  Input {}:", index)?;
 
             let txid_hex = hex::encode(input.previous_output.txid.0);
             writeln!(f, "    Previous Output Txid: {}", txid_hex)?;
-            writeln!(f, "    Previous Output Vout: {}", input.previous_output.vout)?;
+            writeln!(
+                f,
+                "    Previous Output Vout: {}",
+                input.previous_output.vout
+            )?;
 
             let script_length = input.script_sig.bytes.len();
             writeln!(f, "    ScriptSig Length: {}", script_length)?;
@@ -450,8 +453,6 @@ impl fmt::Display for BitcoinTransaction {
             writeln!(f, "    ScriptSig Bytes: {}", script_hex)?;
 
             writeln!(f, "    Sequence: {}", input.sequence)?;
-
-            index += 1;
         }
 
         write!(f, "Lock Time: {}", self.lock_time)
